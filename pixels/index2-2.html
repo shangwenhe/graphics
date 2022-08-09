@@ -65,9 +65,12 @@
       traverse(imageData, ({r, g, b, a}) => {
         return transformColor(
           [r, g, b, a],
-          channel({r: 1.2}),
-          brightness(1.2),
-          saturate(1.2),
+          // 颜色通道
+          channel({ r: 1.1 }),
+          // 曝光度
+          brightness(1.8),
+          // 灰度
+          saturate(1),
         );
       });
 

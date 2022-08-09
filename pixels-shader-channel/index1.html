@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>加载纹理</title>
+</head>
+<body>
+  <video autoplay playsinline width="642"   id="player" height="504"></video>
+  <canvas id="canvas3" width="642" height="504"></canvas>
+  <canvas id="canvas" width="642" height="504"></canvas>
+
+  <script type="module">
+    import { gaussianBlur } from '../pixels/lib/util.js';
+  const canvas = document.getElementById('canvas');
+
+  const gl = canvas.getContext('webgl');
+
+  const extensions = {
+      SRGB: gl.getExtension("EXT_SRGB"),
+      TEX_LOD: gl.getExtension("EXT_shader_texture_lod")
+  };
+
+  const vs = `
+    attribute vec2 aPosition;
+    attribute vec2 uv;
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(aPosition, 0.0, 1.0);
+    }`;
+
+  const fs = `
+    #extension GL_EXT_shader_texture_lod: enable
+
+    precision mediump float;
+    varying vec2 vUv;
+
+    uniform vec2 uResolution;
+    uniform sampler2D uTexture;
+
+    uniform mat4 channelMatrix;
+    uniform mat4 brightnessMatrix;
+    uniform mat4 saturateMatrix;
+
+    void main() {
+        vec2 st = gl_FragCoord.xy / uResolution;
+        vec4 color = texture2D(uTexture, st);
+        gl_FragColor = channelMatrix * brightnessMatrix * saturateMatrix * vec4(color.rgb, 1.0);
+        gl_FragColor.a = color.a;
+    }`;
+
+  gl.clearColor(0.0, 0.0, 0.0, 1.0);
+  const program = createShaderProgram(vs, fs, gl);
+  gl.useProgram(program);
+
+  const vBuffer = createBuffer(new Float32Array([-1, -1, -1, 1, 1, 1, 1, -1]), gl);
+  const eBuffer = createElementsBuffer(new Uint16Array([0, 1, 2, 0, 2, 3]), gl);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, vBuffer);
+  const posloc = gl.getAttribLocation(program, 'aPosition');
+  gl.vertexAttribPointer(posloc, 2, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(posloc);
+
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eBuffer);
+
+  // 画布大小
+  const resLoc = gl.getUniformLocation(program, 'uResolution');
+  gl.uniform2fv(resLoc, new Float32Array([642, 504]));
+
+  const sampLoc = gl.getUniformLocation(program, 'uTexture');
+
+  const channelMatrix = gl.getUniformLocation(program, 'channelMatrix');
+  const brightnessMatrix = gl.getUniformLocation(program, 'brightnessMatrix');
+  const saturateMatrix = gl.getUniformLocation(program, 'saturateMatrix');
+
+
+
+  gl.activeTexture(gl.TEXTURE0);
+
+  function channel({r = 1, g = 1, b = 1}) {
+        return [
+          r, 0, 0, 0,
+          0, g, 0, 0,
+          0, 0, b, 0,
+          0, 0, 0, 1,
+        ];
+      }
+  gl.uniform1i(sampLoc, channel({r: 1.3}));
+
+  function imageLena(imageLena_512) {
+
+      var data = {
+          flipY: true,
+          scale: 1,
+          SRGB: false,
+          MAG_FILTER: 'NEAREST',
+          MIN_FILTER: 'NEAREST',
+          generateMipMap: false,
+          customMipmap: false,
+          extLodLevel: 0
+      };
+
+
+      let texture;
+      recreateTexture();
+
+      function render() {
+
+        function channel({r = 1, g = 1, b = 1}) {
+            return [
+              r, 0, 0, 0,
+              0, g, 0, 0,
+              0, 0, b, 0,
+              0, 0, 0, 1,
+            ];
+          }
+
+          gl.uniformMatrix4fv(channelMatrix, false, new Float32Array(channel({r: 1.1 })));
+
+
+          function brightness(p) {
+            return [
+              p, 0, 0, 0,
+              0, p, 0, 0,
+              0, 0, p, 0,
+              0, 0, 0, 1,
+            ];
+          }
+          gl.uniformMatrix4fv(brightnessMatrix, false, new Float32Array(brightness(1.3)));
+
+
+          function saturate(p) {
+            const r = 0.212 * (1 - p);
+            const g = 0.714 * (1 - p);
+            const b = 0.074 * (1 - p);
+            return [
+              r + p, r,       r,     0,
+              g,     g + p,   g,     0,
+              b,     b,       b + p, 0,
+              0,     0,       0,     1,
+            ];
+          }
+
+          gl.uniformMatrix4fv(saturateMatrix, false, new Float32Array(saturate(0.8)));
+
+          gl.clear(gl.COLOR_BUFFER_BIT);
+          gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+      }
+      render();
+
+      function recreateTexture() {
+          if (texture) {
+              gl.deleteTexture(texture);
+          }
+          const image = imageLena_512;
+          texture = createTextureImage(image, {
+              flipY: data.flipY,
+              sRGB: data.SRGB,
+              magFilter: data.MAG_FILTER,
+              minFilter: data.MIN_FILTER,
+              generateMipMap: data.generateMipMap,
+              customMipMap: null
+          }, gl);
+          gl.bindTexture(gl.TEXTURE_2D, texture);
+      }
+  };
+
+
+  function createShaderProgram(vShaderSource, fShaderSource, gl) {
+      function loadShader(gl, type, source) {
+          var shader = gl.createShader(type);
+          gl.shaderSource(shader, source);
+          gl.compileShader(shader);
+          if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+              throw 'An error occurred compiling the shaders: ' + gl.getShaderInfoLog(shader);
+          }
+          return shader;
+      }
+
+      const fShader = loadShader(gl, gl.FRAGMENT_SHADER, fShaderSource);
+      const vShader = loadShader(gl, gl.VERTEX_SHADER, vShaderSource);
+      const program = gl.createProgram();
+      gl.attachShader(program, vShader);
+      gl.attachShader(program, fShader);
+      gl.linkProgram(program);
+
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          throw 'Unable to initialize the shader program: ' + gl.getProgramInfoLog(program);
+      }
+
+      return program;
+  }
+
+  function createBuffer(value, gl) {
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, value, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, null);
+      return buffer;
+  }
+
+  function createElementsBuffer(value, gl) {
+      const buffer = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, value, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+      return buffer;
+  }
+
+  function createTextureImage(image, opts, gl) {
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, opts.flipY);
+      const texture = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+      const format = opts.sRGB && extensions.SRGB ? extensions.SRGB.SRGB_EXT : gl.RGBA;
+
+      gl.texImage2D(gl.TEXTURE_2D, 0, format, format, gl.UNSIGNED_BYTE, image);
+
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl[opts.magFilter]);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl[opts.minFilter]);
+
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      return texture;
+  }
+
+  function loadImage(src, callback) {
+      const image = new Image();
+      image.crossOrigin = true;
+      image.onload = function () { callback(image) };
+      image.src = src;
+  }
+
+  function loadImages(callback) {
+
+      const imageLenaUrl_512 = 'https://p1.ssl.qhimg.com/t01cca5849c98837396.jpg';
+      const imageLenaUrl_300 = 'https://p1.ssl.qhimg.com/t01cca5849c98837396.jpg';
+      const imageUVUrl_256 = '//gw.alicdn.com/tfs/TB1TfostQvoK1RjSZFNXXcxMVXa-256-256.png';
+
+      loadImage(imageLenaUrl_512, function (imageLena_512) {
+        console.log('imageLena_512', imageLena_512)
+      //     loadImage(imageLenaUrl_300, function (imageLena_300) {
+      //         loadImage(imageUVUrl_256, function (imageUV_256) {
+          imageLena(imageLena_512);
+      //         })
+      //     })
+      })
+  }
+
+  // loadImages()
+
+
+  var videoplay = document.getElementById('player');
+  var constraints = {
+        video: true,
+        audio: false
+      }
+      navigator.mediaDevices.getUserMedia(constraints)
+        .then((stream)=>{
+          videoplay.srcObject = stream
+        })
+
+
+
+      const canvas3 = document.getElementById('canvas3');
+      const Canvas2D = canvas3.getContext('2d')
+      const stream =  canvas.captureStream(25); // 25 FPS
+      function rendervideoplay() {
+        Canvas2D.drawImage(videoplay, 0, 0, 642, 504);
+        let imageLena_512 = Canvas2D.getImageData( 0, 0, 642, 504)
+        imageLena(imageLena_512)
+        requestAnimationFrame(rendervideoplay)
+      }
+      setTimeout(rendervideoplay, 3000)
+
+  </script>
+</body>
+</html>

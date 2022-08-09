@@ -74,6 +74,7 @@ export function grayscale(p) {
   ];
 }
 
+// 改变亮度
 export function brightness(p) {
   return [
     p, 0, 0, 0, 0,
@@ -96,6 +97,7 @@ export function saturate(p) {
   ];
 }
 
+// 灰度
 export function contrast(p) {
   const d = 0.5 * (1 - p);
   return [
@@ -125,6 +127,7 @@ export function sepia(p) {
   ];
 }
 
+// 透明底
 export function opacity(p) {
   return [
     1, 0, 0, 0, 0,
